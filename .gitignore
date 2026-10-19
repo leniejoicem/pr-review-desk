@@ -1,0 +1,6 @@
+# Created when you run the desk; personal, don't commit
+runs/
+work/
+settings.json
+node_modules/
+.DS_Store

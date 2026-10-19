@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR Review Desk</title>
+<style>
+/* Layout: the review room (one desk per parallel run) across the top, PR cards below it, the run log on the right. */
+:root {
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --fg: #1b2230;
+  --muted: #5d6779;
+  --line: #dde1e8;
+  --accent: #2f5bd3;
+  --accent-fg: #ffffff;
+  --floor: #e9ecf2;
+  --wall: #dfe4ee;
+  --desk: #b98b5e;
+  --desk-top: #cfa073;
+  --ok: #1d7a45;      --ok-bg: #e3f4ea;
+  --warn: #8a5a00;    --warn-bg: #fdf1d6;
+  --bad: #b3261e;     --bad-bg: #fbe5e3;
+  --info: #2f5bd3;    --info-bg: #e5ecfc;
+  --idle: #5d6779;    --idle-bg: #eceef2;
+  --bubble: #ffffff;  --bubble-fg: #1b2230;
+  --log-bg: #0f1420;  --log-fg: #d6dbe6;  --log-dim: #8792a8;
+  --bot-0: #4f7cf0; --bot-1: #e0793a; --bot-2: #2fa37a; --bot-3: #a35bd6; --bot-4: #d64f73; --bot-5: #3aa6c4;
+  --font: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151c; --panel: #181e27; --fg: #e4e8ef; --muted: #98a2b4; --line: #2a3240;
+    --accent: #7d9bf0; --accent-fg: #0d1220;
+    --floor: #161b24; --wall: #1d2430; --desk: #6e4f33; --desk-top: #8a6542;
+    --ok: #6fd39a; --ok-bg: #173325; --warn: #f0c062; --warn-bg: #3a2e12;
+    --bad: #f4867d; --bad-bg: #3d1c1a; --info: #9db4f5; --info-bg: #1e2a48;
+    --idle: #98a2b4; --idle-bg: #232a36;
+    --bubble: #262e3b; --bubble-fg: #e4e8ef;
+    --log-bg: #0a0d13; --log-fg: #d6dbe6; --log-dim: #7d879b;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); }
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font: 12px var(--mono); }
+
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
+  padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+header h1 { margin: 0; font-size: 17px; }
+.who { color: var(--muted); font-size: 13px; }
+.watch { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-left: auto; }
+.watch input[type=text] { width: 250px; max-width: 70vw; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.watch select { padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+.switch input { appearance: none; width: 36px; height: 20px; border-radius: 999px; background: var(--idle-bg); border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: left .15s; }
+.switch input:checked { background: var(--accent); border-color: var(--accent); }
+.switch input:checked::after { left: 18px; background: var(--accent-fg); }
+.tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11.5px; border: 1px solid var(--line); color: var(--muted); }
+.repo-name { font: 12px var(--mono); color: var(--muted); }
+.issues { display: grid; gap: 8px; }
+.issue { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.issue .title { font-weight: 600; overflow-wrap: anywhere; }
+.issue .title a { color: inherit; text-decoration: none; }
+.issue .title a:hover { text-decoration: underline; }
+.issue .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 12.5px; align-items: center; }
+.label-dot { display: inline-flex; align-items: center; gap: 5px; }
+.label-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.s-changes-requested { color: var(--bad); background: var(--bad-bg); }
+section h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 20px; padding: 20px; align-items: start; }
+@media (max-width: 1040px) { main { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 18px; min-width: 0; }
+
+.btn { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.small { padding: 3px 9px; font-size: 13px; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.s-needs-review { color: var(--info); background: var(--info-bg); }
+.s-ready-to-recheck { color: var(--warn); background: var(--warn-bg); }
+.s-waiting { color: var(--idle); background: var(--idle-bg); }
+.s-approved, .s-done { color: var(--ok); background: var(--ok-bg); }
+.s-running, .s-queued { color: var(--info); background: var(--info-bg); }
+.s-failed { color: var(--bad); background: var(--bad-bg); }
+.s-stopped { color: var(--idle); background: var(--idle-bg); }
+
+/* ---------- Review room ---------- */
+.room-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.room-head h2, aside h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.room {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;
+  padding: 16px; border-radius: 12px; border: 1px solid var(--line);
+  background: linear-gradient(var(--wall) 0 56%, var(--floor) 56% 100%);
+}
+.desk {
+  position: relative; display: grid; justify-items: center; gap: 6px; padding: 10px 8px 12px;
+  border-radius: 10px; border: 2px dashed transparent; min-width: 0; cursor: default;
+  --bot: var(--bot-0);
+}
+.desk.clickable { cursor: pointer; }
+.desk.drop-ok { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.desk .name { font-weight: 700; font-size: 13px; }
+.desk .task { font-size: 12px; color: var(--muted); text-align: center; min-height: 1.4em; overflow-wrap: anywhere; }
+.desk .task a { color: inherit; }
+
+.bubble {
+  position: relative; width: 100%; min-height: 54px; padding: 8px 10px; border-radius: 10px;
+  background: var(--bubble); color: var(--bubble-fg); border: 1px solid var(--line);
+  font-size: 12px; line-height: 1.35; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.bubble::after {
+  content: ""; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px; margin-left: -6px;
+  background: var(--bubble); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg);
+}
+.bubble .verb { font-weight: 700; }
+.bubble a { color: var(--accent); }
+
+.scene { width: 100%; max-width: 190px; height: auto; display: block; overflow: visible; }
+.scene .bot-color { fill: var(--bot); }
+.scene .desk-top { fill: var(--desk-top); }
+.scene .desk-body { fill: var(--desk); }
+.scene .laptop { fill: #2b3342; }
+.scene .screen { fill: #18202d; }
+.scene .code-line { fill: var(--bot); opacity: 0; }
+.scene .face { fill: #10151f; }
+.scene .eye { fill: #8ff0c4; }
+.scene .eye-x, .scene .eye-happy, .scene .eye-sleep { display: none; stroke: #8ff0c4; stroke-width: 3; stroke-linecap: round; fill: none; }
+.scene .badge, .scene .zzz, .scene .alert { display: none; }
+.scene .zzz text { fill: var(--muted); font: 700 14px var(--font); }
+.scene .badge circle { fill: var(--ok); }
+.scene .alert circle { fill: var(--bad); }
+.scene .arm { transform-box: fill-box; transform-origin: top center; }
+.scene .bot { transform-box: fill-box; transform-origin: bottom center; }
+
+/* idle: dozing */
+.desk.idle .eye { display: none; }
+.desk.idle .eye-sleep, .desk.idle .zzz { display: block; }
+.desk.idle .bot { animation: breathe 3.2s ease-in-out infinite; }
+.desk.idle .zzz { animation: float 2.6s ease-in-out infinite; }
+/* working: typing, screen scrolling */
+.desk.working .arm-l { animation: tap 0.32s ease-in-out infinite alternate; }
+.desk.working .arm-r { animation: tap 0.32s ease-in-out infinite alternate-reverse; }
+.desk.working .code-line { animation: code 1.6s linear infinite; }
+.desk.working .code-line:nth-of-type(2) { animation-delay: 0.4s; }
+.desk.working .code-line:nth-of-type(3) { animation-delay: 0.8s; }
+.desk.working .code-line:nth-of-type(4) { animation-delay: 1.2s; }
+.desk.working .eye { animation: blink 4s infinite; transform-box: fill-box; transform-origin: center; }
+/* done: happy hop */
+.desk.done .eye { display: none; }
+.desk.done .eye-happy, .desk.done .badge { display: block; }
+.desk.done .bot { animation: hop 0.7s ease-out 3; }
+/* failed: x eyes and a red ! */
+.desk.failed .eye { display: none; }
+.desk.failed .eye-x, .desk.failed .alert { display: block; }
+.desk.failed .bot { animation: shake 0.5s ease-in-out 2; }
+
+@keyframes breathe { 50% { transform: translateY(2px) scaleY(0.98); } }
+@keyframes float { 0% { transform: translate(0, 4px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(8px, -10px); opacity: 0; } }
+@keyframes tap { from { transform: rotate(-8deg); } to { transform: rotate(10deg) translateY(2px); } }
+@keyframes code { 0% { opacity: 0; transform: translateY(6px); } 20%, 70% { opacity: 0.9; } 100% { opacity: 0; transform: translateY(-6px); } }
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes hop { 30% { transform: translateY(-12px); } 60% { transform: translateY(0); } }
+@keyframes shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+@media (prefers-reduced-motion: reduce) { .scene *, .scene { animation: none !important; } }
+
+.queue { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.queue .chip { display: inline-flex; gap: 6px; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--fg); }
+.queue .chip button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0 2px; }
+
+/* ---------- PR cards ---------- */
+.summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.summary .count { color: var(--muted); margin-right: 4px; }
+.summary .spacer { flex: 1; }
+.prs { display: grid; gap: 10px; }
+.pr {
+  display: grid; grid-template-columns: 22px 60px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center;
+  padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+}
+.pr[draggable="true"] { cursor: grab; }
+.pr.dragging { opacity: 0.5; }
+.pr.selected { border-color: var(--accent); }
+.grip { grid-row: 1 / span 3; color: var(--muted); font-size: 16px; line-height: 1; user-select: none; text-align: center; }
+.pr .num { font: 600 15px var(--mono); color: var(--muted); }
+.pr .title { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pr .title a { color: inherit; text-decoration: none; }
+.pr .title a:hover { text-decoration: underline; }
+.pr .status, .pr .meta { grid-column: 3; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.pr .meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.pr .actions { grid-column: 4; grid-row: 1 / span 3; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.plus { color: var(--ok); } .minus { color: var(--bad); }
+@media (max-width: 640px) {
+  .pr { grid-template-columns: 22px minmax(0, 1fr); }
+  .pr .num, .pr .title, .pr .status, .pr .meta, .pr .actions { grid-column: 2; grid-row: auto; }
+  .pr .actions { justify-content: flex-start; }
+}
+.empty, .error { padding: 18px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); }
+.error { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
+
+/* ---------- Log ---------- */
+aside { position: sticky; top: 20px; display: grid; gap: 12px; min-width: 0; }
+.runs { display: grid; gap: 6px; max-height: 200px; overflow: auto; }
+.run { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; text-align: left; width: 100%; }
+.run.active { border-color: var(--accent); }
+.run .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.logbar { display: flex; gap: 8px; align-items: center; }
+.logbar .grow { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log { background: var(--log-bg); color: var(--log-fg); border-radius: 8px; padding: 12px; font: 12.5px/1.5 var(--mono); height: min(58vh, 620px); overflow: auto; }
+.log .ev { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log .tool { color: var(--log-dim); }
+.log .tool b { color: var(--log-fg); font-weight: 600; }
+.log .state { color: var(--log-dim); font-style: italic; }
+.log .result { border-top: 1px solid #2a3240; padding-top: 8px; }
+.log .err { color: #f4867d; }
+.log a { color: #9db4f5; }
+.note { color: var(--muted); font-size: 12.5px; margin: 0; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; max-width: calc(100vw - 32px); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PR Review Desk</h1>
+  <span class="who" id="who">Loading…</span>
+  <div class="watch" id="watch"></div>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <div class="room-head">
+        <h2>Review room</h2>
+        <span class="who">Drag a pull request onto a reviewer, or turn on Auto-watch and they pick up work themselves. Click a reviewer to watch their log.</span>
+      </div>
+      <div class="room" id="room" style="margin-top:10px"></div>
+      <div class="queue" id="queue" style="margin-top:10px"></div>
+    </section>
+
+    <section class="col" style="gap:10px">
+      <h2>Pull requests for you</h2>
+      <div class="summary" id="summary"></div>
+      <div class="prs" id="prs"><div class="empty">Loading your review inbox…</div></div>
+    </section>
+
+    <section class="col" style="gap:10px">
+      <h2>Issues assigned to you</h2>
+      <div class="issues" id="issues"><div class="empty">Loading…</div></div>
+    </section>
+  </div>
+
+  <aside>
+    <h2>Runs</h2>
+    <div class="runs" id="runs"><p class="note">No runs yet.</p></div>
+    <div class="logbar">
+      <span class="grow" id="logTitle">Run log</span>
+      <button class="btn small" id="stopBtn" hidden>Stop</button>
+    </div>
+    <div class="log" id="log" aria-live="polite"><div class="ev state">Click a reviewer or a run to see what the agent is doing.</div></div>
+    <p class="note">Each reviewer is <code>claude -p --agent pr-reviewer</code>. They post to GitHub as you and never approve on a first review.</p>
+  </aside>
+</main>
+
+<template id="botTpl">
+  <svg class="scene" viewBox="0 0 190 150" aria-hidden="true">
+    <g class="zzz"><text x="128" y="26">z</text><text x="140" y="14" style="font-size:11px">z</text></g>
+    <g class="bot">
+      <line x1="95" y1="14" x2="95" y2="26" stroke="currentColor" stroke-width="3" style="color:var(--muted)"/>
+      <circle cx="95" cy="12" r="5" class="bot-color"/>
+      <rect x="66" y="26" width="58" height="46" rx="16" class="bot-color"/>
+      <rect x="73" y="34" width="44" height="28" rx="9" class="face"/>
+      <ellipse class="eye" cx="86" cy="48" rx="4" ry="5"/>
+      <ellipse class="eye" cx="104" cy="48" rx="4" ry="5"/>
+      <path class="eye-sleep" d="M81 49 q5 4 10 0 M99 49 q5 4 10 0"/>
+      <path class="eye-happy" d="M81 51 q5 -7 10 0 M99 51 q5 -7 10 0"/>
+      <path class="eye-x" d="M82 44 l8 8 M90 44 l-8 8 M100 44 l8 8 M108 44 l-8 8"/>
+      <rect x="72" y="74" width="46" height="30" rx="10" class="bot-color" style="opacity:.85"/>
+      <rect class="arm arm-l" x="60" y="78" width="10" height="26" rx="5" style="fill:var(--bot)"/>
+      <rect class="arm arm-r" x="120" y="78" width="10" height="26" rx="5" style="fill:var(--bot)"/>
+    </g>
+    <rect x="18" y="104" width="154" height="10" rx="3" class="desk-top"/>
+    <rect x="28" y="114" width="12" height="32" class="desk-body"/>
+    <rect x="150" y="114" width="12" height="32" class="desk-body"/>
+    <path d="M70 104 l8 -24 h50 l-6 24 z" class="laptop"/>
+    <rect x="81" y="84" width="40" height="16" class="screen" transform="skewX(-18) translate(28 0)"/>
+    <g transform="skewX(-18) translate(28 0)">
+      <rect class="code-line" x="84" y="87" width="22" height="2.4" rx="1"/>
+      <rect class="code-line" x="84" y="91" width="30" height="2.4" rx="1"/>
+      <rect class="code-line" x="84" y="95" width="16" height="2.4" rx="1"/>
+      <rect class="code-line" x="88" y="87" width="26" height="2.4" rx="1"/>
+    </g>
+    <g class="badge"><circle cx="146" cy="34" r="13"/><path d="M139 34 l5 5 l9 -10" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g class="alert"><circle cx="146" cy="34" r="13"/><rect x="144.4" y="25" width="3.2" height="11" rx="1.4" fill="#fff"/><circle cx="146" cy="41" r="2" fill="#fff"/></g>
+  </svg>
+</template>
+
+<script>
+const TOKEN = "__TOKEN__";
+const MAX_PARALLEL = Number("__MAX_PARALLEL__") || 3;
+const NAMES = ["Diff", "Patch", "Lint", "Merge", "Stash", "Blame"];
+const $ = (id) => document.getElementById(id);
+const STATUS = {
+  "needs-review":      { label: "Not reviewed",      action: "review"  },
+  "ready-to-recheck":  { label: "Ready to recheck",  action: "recheck" },
+  "changes-requested": { label: "Changes requested", action: null      },
+  "waiting":           { label: "Waiting on author", action: null      },
+  "approved":          { label: "Approved",          action: null      },
+};
+const SOURCE_LABEL = { requested: "Review requested", assigned: "Assigned", team: "Team PR", reviewed: "You reviewed" };
+const DONE_LINGER_MS = 90_000;
+let me = "";
+let prs = [];
+let issues = [];
+let runs = [];
+let watch = null;
+let selectedRun = null;
+let source = null;
+
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") n.className = v;
+    else if (k === "style") n.setAttribute("style", v);
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined && v !== false) n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) n.append(k);
+  return n;
+}
+function ago(ts) {
+  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+function until(ts) {
+  const s = Math.max(0, (ts - Date.now()) / 1000);
+  return s < 60 ? "under a minute" : Math.round(s / 60) + " min";
+}
+function dur(a, b) {
+  const s = Math.round(((b || Date.now()) - a) / 1000);
+  return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + (s % 60) + "s";
+}
+function toast(msg) {
+  const t = el("div", { class: "toast", role: "status" }, msg);
+  document.body.append(t);
+  setTimeout(() => t.remove(), 3500);
+}
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", "x-desk-token": TOKEN } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+  return body;
+}
+const short = (repo) => repo.split("/")[1];
+// claude -p reports what the run would cost at API prices. On a Claude subscription it counts toward plan usage instead of being billed.
+const fmtCost = (c) => "≈$" + c.toFixed(2) + " usage";
+
+// ---------- data ----------
+async function loadInbox() {
+  try {
+    const data = await api("/api/inbox");
+    me = data.me;
+    $("who").textContent = "Signed in to GitHub as " + data.me;
+    prs = data.prs;
+    issues = data.issues;
+  } catch (err) {
+    prs = []; issues = [];
+    $("prs").replaceChildren(el("div", { class: "error" }, "Couldn't load your inbox: " + err.message));
+    return;
+  }
+  renderAll();
+}
+async function loadRuns() {
+  try { runs = await api("/api/runs"); } catch { return; }
+  renderAll();
+}
+async function loadWatch() {
+  try { watch = await api("/api/watch"); renderWatch(); } catch {}
+}
+function renderAll() {
+  try { renderRoom(); renderQueue(); renderPRs(); renderIssues(); renderRuns(); renderWatch(); }
+  catch (err) { console.error(err); toast("Display error: " + err.message); }
+}
+function liveRunFor(repo, n) {
+  return runs.find((r) => r.repo === repo && r.number === n && (r.state === "running" || r.state === "queued"));
+}
+
+// ---------- auto-watch ----------
+function renderWatch() {
+  if (!watch) return;
+  const box = $("watch");
+  if (box.contains(document.activeElement) && document.activeElement.id === "repos") return; // don't clobber typing
+  let line;
+  if (watch.lastError) line = el("span", { class: "who", style: "color:var(--bad)" }, "Last check failed: " + watch.lastError);
+  else if (watch.on && watch.nextCheck) line = el("span", { class: "who" }, (watch.lastCheck ? "Checked " + ago(watch.lastCheck) + " · " : "") + "next in " + until(watch.nextCheck));
+  else line = el("span", { class: "who" }, "Off: reviewers only start when you ask");
+  const sel = el("select", { id: "interval", "aria-label": "Check every", onchange: (e) => setWatch({ intervalMin: Number(e.target.value) }) },
+    ...[5, 10, 15, 30, 60].map((m) => el("option", { value: String(m), selected: m === watch.intervalMin }, "every " + m + " min")));
+  box.replaceChildren(
+    el("label", { class: "switch" }, el("input", { type: "checkbox", id: "watchOn", checked: watch.on, onchange: (e) => setWatch({ on: e.target.checked }) }), "Auto-watch"),
+    sel,
+    el("button", { class: "btn small", onclick: () => setWatch({ checkNow: true }) }, "Check now"),
+    line,
+    el("input", { type: "text", id: "repos", value: watch.repos.join(", "), "aria-label": "Team repos (comma separated)", title: "Every open PR in these repos that you didn't write counts as yours to review",
+      onchange: (e) => setWatch({ repos: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }) }),
+  );
+}
+async function setWatch(patch) {
+  try {
+    watch = await api("/api/watch", { method: "POST", body: JSON.stringify(patch) });
+    renderWatch();
+    if (patch.repos) loadInbox();
+    if (patch.on || patch.checkNow) { toast(patch.checkNow ? "Checking GitHub now…" : "Auto-watch is on. Checking now."); setTimeout(() => { loadRuns(); loadInbox(); loadWatch(); }, 4000); }
+  } catch (err) { toast(err.message); loadWatch(); }
+}
+
+// ---------- review room ----------
+function activityText(run) {
+  const a = run.lastActivity;
+  if (!a) return el("span", null, el("span", { class: "verb" }, "Starting up"), " on " + short(run.repo) + "#" + run.number + "…");
+  const verbs = { Bash: "Running", Read: "Reading", Write: "Writing", Grep: "Searching", Glob: "Looking for", Edit: "Editing", Skill: "Loading", say: "" };
+  const verb = a.tool in verbs ? verbs[a.tool] : a.tool;
+  let label = a.label || "";
+  if (a.tool === "Read" || a.tool === "Write") label = label.split("/").pop();
+  return el("span", null, verb ? el("span", { class: "verb" }, verb + " ") : null, label);
+}
+function deskFor(slot) {
+  const running = runs.find((r) => r.state === "running" && r.slot === slot);
+  if (running) return { mode: "working", run: running };
+  const recent = runs
+    .filter((r) => r.slot === slot && ["done", "failed", "stopped"].includes(r.state) && r.endedAt && Date.now() - r.endedAt < DONE_LINGER_MS)
+    .sort((a, b) => b.endedAt - a.endedAt)[0];
+  if (recent) return { mode: recent.state === "done" ? "done" : "failed", run: recent };
+  return { mode: "idle", run: null };
+}
+function renderRoom() {
+  const desks = [];
+  for (let slot = 0; slot < MAX_PARALLEL; slot++) {
+    const { mode, run } = deskFor(slot);
+    const svg = $("botTpl").content.firstElementChild.cloneNode(true);
+    let bubble;
+    if (mode === "working") bubble = activityText(run);
+    else if (mode === "done") bubble = el("span", null, el("span", { class: "verb" }, "Done! "),
+      run.reviewUrl ? el("a", { href: run.reviewUrl, target: "_blank", rel: "noopener" }, "See the review") : "Finished",
+      run.cost != null ? " · " + fmtCost(run.cost) : "");
+    else if (mode === "failed") bubble = el("span", null, el("span", { class: "verb" }, run.state === "stopped" ? "Stopped. " : "Something went wrong. "), "Click me for the log.");
+    else bubble = el("span", null, watch && watch.on ? "Free. I'll pick up the next PR that needs me." : "Free. Drop a PR here.");
+    desks.push(el("div", {
+      class: "desk " + mode + (run ? " clickable" : ""),
+      style: `--bot: var(--bot-${slot % 6})`,
+      role: run ? "button" : "group",
+      tabindex: run ? "0" : null,
+      "aria-label": NAMES[slot % 6] + (run ? ", " + run.mode + " " + run.repo + "#" + run.number + ". Open log." : ", free"),
+      onclick: () => run && selectRun(run),
+      onkeydown: (e) => { if (run && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectRun(run); } },
+      ondragover: (e) => { e.preventDefault(); e.currentTarget.classList.add("drop-ok"); },
+      ondragleave: (e) => e.currentTarget.classList.remove("drop-ok"),
+      ondrop: (e) => {
+        e.preventDefault();
+        e.currentTarget.classList.remove("drop-ok");
+        const key = e.dataTransfer.getData("text/x-pr");
+        if (key) assign(key, mode === "working");
+      },
+    },
+      el("div", { class: "bubble" }, bubble),
+      svg,
+      el("div", { class: "name" }, NAMES[slot % 6]),
+      el("div", { class: "task" }, run
+        ? el("span", null, (mode === "working" ? run.mode + " " : "") + short(run.repo) + "#" + run.number + (mode === "working" ? " · " + dur(run.startedAt) : "") + (run.by === "auto-watch" ? " · auto" : ""))
+        : "Idle"),
+    ));
+  }
+  $("room").replaceChildren(...desks);
+}
+function renderQueue() {
+  const q = runs.filter((r) => r.state === "queued").sort((a, b) => a.createdAt - b.createdAt);
+  $("queue").replaceChildren(...(q.length ? [
+    el("span", null, "Waiting in line:"),
+    ...q.map((r) => el("span", { class: "chip" }, short(r.repo) + "#" + r.number + " " + r.mode,
+      el("button", { "aria-label": "Remove #" + r.number + " from the line", onclick: () => stop(r) }, "×"))),
+  ] : []));
+}
+function assign(key, busy) {
+  const p = prs.find((x) => x.repo + "#" + x.number === key);
+  if (!p) return;
+  if (liveRunFor(p.repo, p.number)) { toast("#" + p.number + " already has a reviewer."); return; }
+  runAgent(p, p.lastReview || p.openThreads ? "recheck" : "review");
+  if (busy) toast("That reviewer is busy, so #" + p.number + " joins the line.");
+}
+
+// ---------- PR cards ----------
+function renderPRs() {
+  const box = $("prs");
+  if (!prs.length) { box.replaceChildren(el("div", { class: "empty" }, "Nothing for you right now. New teammate PRs and replies to your threads will show up here.")); renderSummary(); return; }
+  box.replaceChildren(...prs.map((p) => {
+    const st = STATUS[p.status];
+    const live = liveRunFor(p.repo, p.number);
+    const pill = live
+      ? el("span", { class: "pill s-" + live.state }, live.state === "running" ? NAMES[(live.slot ?? 0) % 6] + " is on it" : "Waiting in line")
+      : el("span", { class: "pill s-" + p.status, title: p.reason }, st.label);
+    const lr = p.lastReview;
+    return el("article", {
+      class: "pr" + (selectedRun && selectedRun.repo === p.repo && selectedRun.number === p.number ? " selected" : ""),
+      draggable: live ? "false" : "true",
+      ondragstart: (e) => { e.dataTransfer.setData("text/x-pr", p.repo + "#" + p.number); e.dataTransfer.effectAllowed = "copy"; e.currentTarget.classList.add("dragging"); },
+      ondragend: (e) => e.currentTarget.classList.remove("dragging"),
+    },
+      el("div", { class: "grip", title: "Drag onto a reviewer" }, live ? "" : "⠿"),
+      el("div", { class: "num" }, "#" + p.number),
+      el("div", { class: "title" }, el("a", { href: p.url, target: "_blank", rel: "noopener" }, p.title), p.isDraft ? " (draft)" : ""),
+      el("div", { class: "actions" },
+        el("button", { class: "btn small" + (st.action === "review" ? " primary" : ""), disabled: !!live, onclick: () => runAgent(p, "review") }, "Review"),
+        el("button", { class: "btn small" + (st.action === "recheck" ? " primary" : ""), disabled: !!live || !(lr || p.openThreads), title: lr || p.openThreads ? null : "Review it first", onclick: () => runAgent(p, "recheck") }, "Recheck"),
+      ),
+      el("div", { class: "status" }, pill,
+        el("span", { class: "who" }, p.reason),
+        lr ? el("a", { href: lr.url, target: "_blank", rel: "noopener", class: "who" }, "your last review: " + lr.state.toLowerCase().replace("_", " ") + " " + ago(lr.at)) : null,
+      ),
+      el("div", { class: "meta" },
+        el("span", { class: "repo-name" }, p.repo),
+        el("span", null, "by " + p.author),
+        ...p.sources.filter((s) => s !== "reviewed").map((s) => el("span", { class: "tag" }, SOURCE_LABEL[s])),
+        el("span", null, el("code", null, p.head), " → ", el("code", null, p.base)),
+        el("span", null, el("span", { class: "plus" }, "+" + p.additions), " ", el("span", { class: "minus" }, "−" + p.deletions), " in " + p.changedFiles + " files"),
+        p.openThreads ? el("span", null, p.openThreads + " open thread" + (p.openThreads > 1 ? "s" : "")) : null,
+        el("span", null, "updated " + ago(p.updatedAt)),
+      ),
+    );
+  }));
+  renderSummary();
+}
+function renderSummary() {
+  const c = (s) => prs.filter((p) => p.status === s).length;
+  const todo = prs.filter((p) => !p.isDraft && !liveRunFor(p.repo, p.number) && STATUS[p.status].action);
+  $("summary").replaceChildren(
+    el("span", { class: "count" }, prs.length + " open"),
+    el("span", { class: "pill s-needs-review" }, c("needs-review") + " not reviewed"),
+    el("span", { class: "pill s-ready-to-recheck" }, c("ready-to-recheck") + " to recheck"),
+    el("span", { class: "pill s-changes-requested" }, c("changes-requested") + " changes requested"),
+    el("span", { class: "pill s-waiting" }, c("waiting") + " waiting"),
+    el("span", { class: "pill s-approved" }, c("approved") + " approved"),
+    el("span", { class: "spacer" }),
+    el("button", { class: "btn", onclick: loadInbox }, "Refresh"),
+    el("button", { class: "btn primary", disabled: !todo.length, onclick: () => todo.forEach((p) => runAgent(p, STATUS[p.status].action)) },
+      todo.length ? "Run all " + todo.length + " needed" : "Nothing to run"),
+  );
+}
+
+// ---------- issues ----------
+function renderIssues() {
+  const box = $("issues");
+  if (!issues.length) { box.replaceChildren(el("div", { class: "empty" }, "No open issues are assigned to you.")); return; }
+  box.replaceChildren(...issues.map((i) => {
+    const linked = i.linkedPRs.length
+      ? el("span", null, "Linked PR: ", ...i.linkedPRs.map((p, k) => el("span", null, k ? ", " : "", el("a", { href: p.url, target: "_blank", rel: "noopener" }, "#" + p.number), p.isDraft ? " (draft)" : "")))
+      : el("span", { class: "tag" }, "No linked PR yet");
+    return el("article", { class: "issue" },
+      el("div", { class: "title" }, el("span", { class: "repo-name" }, short(i.repo) + "#" + i.number + " "), el("a", { href: i.url, target: "_blank", rel: "noopener" }, i.title)),
+      el("div", null, linked),
+      el("div", { class: "meta" },
+        ...i.labels.map((l) => el("span", { class: "label-dot", style: "--c:#" + l.color }, l.name)),
+        el("span", null, i.comments + " comment" + (i.comments === 1 ? "" : "s")),
+        el("span", null, "updated " + ago(i.updatedAt)),
+      ),
+    );
+  }));
+}
+
+// ---------- runs + log ----------
+function renderRuns() {
+  const box = $("runs");
+  if (!runs.length) { box.replaceChildren(el("p", { class: "note" }, "No runs yet.")); return; }
+  box.replaceChildren(...runs.map((r) => el("button", { class: "run" + (selectedRun && selectedRun.id === r.id ? " active" : ""), onclick: () => selectRun(r) },
+    el("span", { class: "pill s-" + r.state }, r.state),
+    el("span", { class: "label" }, (r.slot != null ? NAMES[r.slot % 6] + " · " : "") + short(r.repo) + "#" + r.number + " " + r.mode + (r.by === "auto-watch" ? " · auto" : "") + (r.cost != null ? " · " + fmtCost(r.cost) : "")),
+    el("span", { class: "time" }, r.startedAt ? dur(r.startedAt, r.endedAt) : "waiting"),
+  )));
+  if (selectedRun) {
+    const fresh = runs.find((r) => r.id === selectedRun.id);
+    if (fresh) { selectedRun = fresh; $("stopBtn").hidden = !(fresh.state === "running" || fresh.state === "queued"); }
+  }
+}
+async function runAgent(p, mode) {
+  try {
+    const run = await api("/api/runs", { method: "POST", body: JSON.stringify({ repo: p.repo, number: p.number, mode, reason: p.reason }) });
+    await loadRuns();
+    selectRun(run);
+  } catch (err) {
+    toast("Couldn't start the run: " + err.message);
+  }
+}
+async function stop(run) {
+  try { await api("/api/runs/" + run.id + "/stop", { method: "POST" }); loadRuns(); }
+  catch (err) { toast("Couldn't stop the run: " + err.message); }
+}
+function linkify(text) {
+  const frag = document.createDocumentFragment();
+  const re = /https:\/\/github\.com\/[^\s)`]+/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    frag.append(text.slice(last, m.index), el("a", { href: m[0], target: "_blank", rel: "noopener" }, m[0]));
+    last = m.index + m[0].length;
+  }
+  frag.append(text.slice(last));
+  return frag;
+}
+function selectRun(r) {
+  selectedRun = r;
+  renderAll();
+  $("logTitle").textContent = (r.slot != null ? NAMES[r.slot % 6] + " · " : "") + r.repo + "#" + r.number + " " + r.mode;
+  $("stopBtn").hidden = !(r.state === "running" || r.state === "queued");
+  const log = $("log");
+  log.replaceChildren();
+  if (source) source.close();
+  source = new EventSource("/api/runs/" + r.id + "/stream");
+  source.onmessage = (msg) => {
+    const ev = JSON.parse(msg.data);
+    const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    if (ev.kind === "text") log.append(el("div", { class: "ev" }, linkify(ev.text)));
+    else if (ev.kind === "tool") log.append(el("div", { class: "ev tool" }, "› ", el("b", null, ev.tool), " ", ev.label || ""));
+    else if (ev.kind === "state") log.append(el("div", { class: "ev state" + (ev.state === "failed" ? " err" : "") }, "— " + ev.state + (ev.error ? ": " + ev.error : "")));
+    else if (ev.kind === "result") log.append(el("div", { class: "ev result" + (ev.isError ? " err" : "") }, ev.cost != null ? "Finished · " + fmtCost(ev.cost) + "\n" : "Finished\n", linkify(ev.text || "")));
+    if (stick) log.scrollTop = log.scrollHeight;
+    if (ev.kind === "state" && ["done", "failed", "stopped"].includes(ev.state)) { loadRuns(); loadInbox(); }
+  };
+}
+$("stopBtn").addEventListener("click", () => selectedRun && stop(selectedRun));
+
+renderRoom();
+loadWatch();
+loadInbox();
+loadRuns();
+// Poll faster while someone is working so the speech bubbles stay current.
+(function tick() {
+  const busy = runs.some((r) => r.state === "running" || r.state === "queued");
+  Promise.all([loadRuns(), loadWatch()]).finally(() => setTimeout(tick, busy ? 2000 : 6000));
+})();
+setInterval(loadInbox, 90_000);
+</script>
+</body>
+</html>
